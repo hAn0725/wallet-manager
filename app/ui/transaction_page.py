@@ -1,14 +1,12 @@
 """记账页 —— 顶部快速记账,下方账单列表(筛选/搜索/编辑/删除)。"""
 from __future__ import annotations
 
-from datetime import date as _date
-
 from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QDateEdit, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem,
+    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QDialog, QFormLayout, QDialogButtonBox,
-    QDoubleSpinBox, QTextEdit, QStackedWidget,
+    QDoubleSpinBox, QTextEdit,
 )
 
 from app.services import category_service, finance_service
@@ -290,15 +288,39 @@ class TransactionPage(QWidget):
             if txn.is_expense:
                 amt_item.setForeground(Qt.red)
             note_item = QTableWidgetItem(txn.note)
-            op_item = QTableWidgetItem("编辑/删除(双击编辑)")
             self.table.setItem(i, 0, date_item)
             self.table.setItem(i, 1, type_item)
             self.table.setItem(i, 2, cat_item)
             self.table.setItem(i, 3, amt_item)
             self.table.setItem(i, 4, note_item)
-            self.table.setItem(i, 5, op_item)
+            # 第 5 列放可点击删除按钮(替代原来的文字提示)
+            del_btn = QPushButton("删除")
+            del_btn.setObjectName("Danger")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setToolTip("删除此账单(双击行可编辑)")
+            del_btn.clicked.connect(lambda _, tid=txn.id: self._delete(tid))
+            self.table.setCellWidget(i, 5, del_btn)
 
         self.table.setRowCount(len(txns))
+
+    def _delete(self, tid: int):
+        txn = finance_service.get_transaction(tid)
+        if not txn:
+            return
+        if QMessageBox.question(
+            self, "确认删除",
+            f"确定删除这条账单吗?\n  {txn.date}　{txn.type}　"
+            f"{format_money(txn.amount)}　{txn.note}",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        ) != QMessageBox.Yes:
+            return
+        try:
+            finance_service.delete_transaction(tid)
+            self.refresh()
+            if self.parent_window:
+                self.parent_window.refresh_all()
+        except Exception as e:  # noqa
+            QMessageBox.critical(self, "删除失败", str(e))
 
     def _on_double_click(self, row, col):
         item = self.table.item(row, 0)

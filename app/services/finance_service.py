@@ -29,12 +29,17 @@ class Transaction:
 # ---------------------------------------------------------------------------
 
 def add_transaction(amount, category_id, type_: str, date, note: str = "") -> int:
-    """新增账单,返回新 id。amount 接受数字或字符串。"""
+    """新增账单,返回新 id。amount 接受数字或字符串。
+
+    category_id 允许为 None(未分类),但若提供则必须指向真实存在的分类。
+    """
     amt = parse_money(amount) if not isinstance(amount, (int, float)) else round2(amount)
     if amt <= 0:
         raise ValueError("金额必须大于 0")
     if type_ not in ("income", "expense"):
         raise ValueError("类型必须是 income 或 expense")
+    if category_id is not None and not _category_exists(category_id):
+        raise ValueError("分类不存在")
     d = iso(to_date(date))
     note = (note or "").strip()
     conn = get_connection()
@@ -52,6 +57,10 @@ def update_transaction(tid: int, amount, category_id, type_: str, date, note: st
         raise ValueError("金额必须大于 0")
     if type_ not in ("income", "expense"):
         raise ValueError("类型必须是 income 或 expense")
+    if category_id is not None and not _category_exists(category_id):
+        raise ValueError("分类不存在")
+    if get_transaction(tid) is None:
+        raise ValueError("账单不存在")
     d = iso(to_date(date))
     note = (note or "").strip()
     conn = get_connection()
@@ -61,6 +70,14 @@ def update_transaction(tid: int, amount, category_id, type_: str, date, note: st
         (amt, category_id, type_, d, note, tid),
     )
     conn.commit()
+
+
+def _category_exists(category_id: int) -> bool:
+    """轻量级外键前置校验,避免写入孤立 category_id。"""
+    row = get_connection().execute(
+        "SELECT 1 FROM categories WHERE id=?", (category_id,)
+    ).fetchone()
+    return row is not None
 
 
 def delete_transaction(tid: int) -> None:

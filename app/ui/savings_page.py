@@ -4,8 +4,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSizePolicy,
-    QSpinBox, QTextEdit, QVBoxLayout, QWidget,
+    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton,
+    QTextEdit, QVBoxLayout, QWidget,
 )
 
 from app.services import savings_service

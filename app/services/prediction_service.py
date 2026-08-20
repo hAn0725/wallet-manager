@@ -10,12 +10,11 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
 
-from app.services import budget_service, statistics_service
-from app.utils.helpers import get_cycle_range, round2, today
+from app.services import budget_service, finance_service, statistics_service
+from app.utils.helpers import cycle_days, get_cycle_range, round2, today
 
 
 @dataclass
@@ -49,6 +48,7 @@ class Predictor:
         start_day = cfg.start_day if cfg else 1
 
         start, end = get_cycle_range(period_type, start_day, ref)
+        # 复用 CycleSummary,避免重复查询预算/支出/天数
         summary = budget_service.get_cycle_summary(ref)
         spent = summary.spent
         days_elapsed = summary.days_elapsed
@@ -80,6 +80,40 @@ class Predictor:
             predicted_balance=predicted_balance, overspend=overspend,
             avg_daily=avg_daily, recent_daily=recent_daily, blended_daily=blended,
             days_elapsed=days_elapsed, days_remaining=days_remaining,
+            method=self.name,
+        )
+
+    def predict_with_budget(self, budget: float, period_type: str, start_day: int,
+                            ref=None) -> PredictionResult:
+        """直接给定预算参数做预测,跳过读库(便于批量/离线场景)。"""
+        ref = ref or today()
+        start, end = get_cycle_range(period_type, start_day, ref)
+        total, elapsed, remaining_days = cycle_days(period_type, start_day, ref)
+
+        spent = finance_service.get_cycle_spent(start, end)
+        avg_daily = round2(spent / elapsed) if elapsed > 0 else 0.0
+
+        recent_start = max(start, ref - timedelta(days=6))
+        trend = statistics_service.daily_trend(recent_start, ref)
+        recent_total = round2(sum(d.amount for d in trend))
+        recent_daily = round2(recent_total / len(trend)) if recent_total > 0 else avg_daily
+
+        if recent_total == 0 and spent == 0:
+            blended = 0.0
+        elif recent_total == 0:
+            blended = avg_daily
+        else:
+            blended = round2(0.4 * avg_daily + 0.6 * recent_daily)
+
+        predicted_total = round2(spent + blended * remaining_days)
+        predicted_balance = round2(budget - predicted_total)
+        overspend = round2(max(0.0, predicted_total - budget)) if budget > 0 else 0.0
+
+        return PredictionResult(
+            spent=spent, predicted_total=predicted_total,
+            predicted_balance=predicted_balance, overspend=overspend,
+            avg_daily=avg_daily, recent_daily=recent_daily, blended_daily=blended,
+            days_elapsed=elapsed, days_remaining=remaining_days,
             method=self.name,
         )
 

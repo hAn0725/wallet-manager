@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import os
 import shutil
 from datetime import datetime
-from typing import Optional
 
 from app.database.database import DB_PATH, get_connection
 

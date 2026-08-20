@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSizePolicy,
+    QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
     QVBoxLayout, QWidget,
 )
 
 from app.services import budget_service, prediction_service, savings_service
-from app.services.finance_service import get_total_balance, get_today_spent
-from app.utils.helpers import format_money, today
+from app.services.finance_service import get_today_spent
+from app.utils.helpers import format_money
 from app.ui.widgets import _apply_shadow
 
 

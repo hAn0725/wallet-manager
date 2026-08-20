@@ -33,6 +33,7 @@ from app.services import (  # noqa: E402
 )
 from app.utils.helpers import (  # noqa: E402
     cycle_days, format_money, get_cycle_range, parse_money, round2,
+    safe_date,
 )
 
 
@@ -399,6 +400,112 @@ def test_category_crud():
     category_service.update_category(cid, "宠物用品", "🐾")
     c = category_service.get_category(cid)
     assert c.name == "宠物用品" and c.icon == "🐾"
+    _teardown()
+
+
+def test_category_invalid_type():
+    _setup()
+    try:
+        category_service.add_category("x", "x", "other")
+        assert False
+    except ValueError:
+        pass
+    _teardown()
+
+
+def test_transaction_category_id_validation():
+    """category_id 必须指向真实存在的分类,否则拒绝。"""
+    _setup()
+    try:
+        finance_service.add_transaction(10, 99999, "expense", "2026-08-20", "")
+        assert False, "应拒绝不存在的分类"
+    except ValueError:
+        pass
+    _teardown()
+
+
+def test_transaction_update_nonexistent():
+    _setup()
+    try:
+        finance_service.update_transaction(99999, 10, None, "expense", "2026-08-20", "")
+        assert False, "应拒绝更新不存在的账单"
+    except ValueError:
+        pass
+    _teardown()
+
+
+def test_prediction_with_budget_params():
+    """直接给定预算参数的预测路径(不走 get_budget 读库)。"""
+    _setup()
+    ecats = category_service.list_categories("expense")
+    for d in range(1, 11):
+        finance_service.add_transaction(50, ecats[0].id, "expense",
+                                        f"2026-08-{d:02d}", "")
+    pred = prediction_service.predictor.predict_with_budget(
+        1000, "natural_month", 1, datetime.date(2026, 8, 10))
+    assert pred.spent == 500  # 1~10 日每天 50
+    assert pred.days_elapsed == 10
+    assert pred.avg_daily == 50
+    _teardown()
+
+
+def test_cycle_summary_no_budget():
+    """未设置预算时 CycleSummary 的默认行为。"""
+    _setup()
+    # 清掉默认预算
+    dbmod.get_connection().execute("DELETE FROM budgets")
+    dbmod.get_connection().commit()
+    s = budget_service.get_cycle_summary(datetime.date(2026, 8, 15))
+    assert s.budget == 0
+    assert s.alert_level == "none"
+    _teardown()
+
+
+def test_format_money_negative():
+    _setup()
+    assert format_money(-180) == "-¥180"
+    assert format_money(-180.5) == "-¥180.50"
+    _teardown()
+
+
+def test_parse_money_various():
+    _setup()
+    assert parse_money("  ¥ 1,234.5  ") == 1234.5
+    assert parse_money("￥50") == 50.0
+    assert parse_money("$99.9") == 99.9
+    # 纯字母无法解析,应抛 ValueError
+    try:
+        parse_money("abc")
+        assert False, "应拒绝纯字母输入"
+    except ValueError:
+        pass
+    _teardown()
+
+
+def test_safe_date_clamp():
+    _setup()
+    # 2 月没有 30 号,应自动夹到 28
+    d = safe_date(2026, 2, 30)
+    assert d.day == 28
+    # 4 月没有 31 号
+    d2 = safe_date(2026, 4, 31)
+    assert d2.day == 30
+    _teardown()
+
+
+def test_category_lookup_includes_all():
+    _setup()
+    lookup = finance_service.get_category_lookup()
+    assert len(lookup) >= 14  # 默认 9 支出 + 5 收入
+    _teardown()
+
+
+def test_cycle_days_elapsed_clamped():
+    _setup()
+    # ref 在周期开始之前,elapsed 应至少为 1
+    total, elapsed, remaining = cycle_days("natural_month", 1,
+                                            datetime.date(2026, 8, 1))
+    assert elapsed >= 1
     _teardown()
 
 

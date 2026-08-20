@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from app.database.database import get_connection
-from app.utils.helpers import round2
 
 
 @dataclass

@@ -18,15 +18,20 @@ def format_money(amount, with_symbol: bool = True) -> str:
     """¥1,174  或  1,174.50
 
     整数不显示小数,非整数保留两位;千分位逗号。
+    负数显示为 -¥180(负号在符号前)。
     """
     if amount is None:
         amount = 0
     amount = round2(amount)
-    if abs(amount - round(amount)) < 1e-9:
-        text = f"{int(round(amount)):,}"
+    negative = amount < 0
+    abs_amount = abs(amount)
+    if abs(abs_amount - round(abs_amount)) < 1e-9:
+        text = f"{int(round(abs_amount)):,}"
     else:
-        text = f"{amount:,.2f}"
-    return f"¥{text}" if with_symbol else text
+        text = f"{abs_amount:,.2f}"
+    prefix = "-" if negative else ""
+    sym = "¥" if with_symbol else ""
+    return f"{prefix}{sym}{text}"
 
 
 def parse_money(text: str) -> float:
@@ -296,7 +301,6 @@ def style_card(widget):
 
 def today_display(ref=None) -> str:
     """返回 '今天 · 2026年8月21日 星期四' 格式。"""
-    import datetime
     d = ref or today()
     weeks = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     return f"今天 · {d.year}年{d.month}月{d.day}日 {weeks[d.weekday()]}"

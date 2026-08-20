@@ -1,8 +1,6 @@
 """设置页 —— 分类管理、数据导入导出、备份恢复、关于。"""
 from __future__ import annotations
 
-import os
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
@@ -11,7 +9,6 @@ from PySide6.QtWidgets import (
 )
 
 from app.services import category_service, settings_service
-from app.utils.helpers import format_money
 from app.ui.widgets import _apply_shadow
 
 
@@ -131,6 +128,33 @@ class SettingsPage(QWidget):
             self.cat_table.setItem(i, 3, cnt_item)
             self.cat_table.setItem(i, 4, op_item)
             self.cat_table.item(i, 0).setData(Qt.UserRole, c.id)
+            # 第 4 列放删除按钮
+            del_btn = QPushButton("删除")
+            del_btn.setObjectName("Danger")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.clicked.connect(lambda _, cid=c.id: self._delete_category(cid))
+            self.cat_table.setCellWidget(i, 4, del_btn)
+
+    def _delete_category(self, cid: int):
+        cat = category_service.get_category(cid)
+        if not cat:
+            return
+        cnt = category_service.category_transaction_count(cid)
+        msg = f"确定删除分类「{cat.name}」吗?"
+        if cnt > 0:
+            msg += f"\n该分类下有 {cnt} 条账单,删除后账单将变为未分类。"
+        if QMessageBox.question(self, "确认删除", msg,
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        try:
+            category_service.delete_category(cid)
+            self._load_categories()
+            if self.parent_window:
+                self.parent_window.refresh_all()
+        except ValueError as e:
+            QMessageBox.warning(self, "删除失败", str(e))
+        except Exception as e:  # noqa
+            QMessageBox.critical(self, "删除失败", str(e))
 
     def _add_category(self):
         dlg = CategoryDialog(parent=self)
@@ -145,7 +169,10 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "输入有误", str(e))
 
     def _edit_category(self, row, col):
-        cid = self.cat_table.item(row, 0).data(Qt.UserRole)
+        item = self.cat_table.item(row, 0)
+        if item is None:
+            return
+        cid = item.data(Qt.UserRole)
         cat = category_service.get_category(cid)
         if not cat:
             return

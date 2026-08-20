@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QSizePolicy,
@@ -11,7 +13,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.services import budget_service, statistics_service
-from app.utils.helpers import format_money, today
+from app.utils.helpers import (
+    _month_days, format_money, get_cycle_range, safe_date, today,
+)
 
 try:
     from PySide6.QtCharts import (QBarCategoryAxis, QBarSeries, QBarSet,
@@ -102,17 +106,14 @@ class StatisticsPage(QWidget):
     # ----------------------------------------------------------------- 数据
 
     def _range(self):
-        from datetime import timedelta
         cfg = budget_service.get_budget()
         period_type = cfg.period_type if cfg else "natural_month"
         start_day = cfg.start_day if cfg else 1
         key = self.cycle_combo.currentData()
         ref = today()
         if key == "cycle":
-            from app.utils.helpers import get_cycle_range
             return get_cycle_range(period_type, start_day, ref)
         if key == "month":
-            from app.utils.helpers import safe_date, _month_days
             return (safe_date(ref.year, ref.month, 1),
                     safe_date(ref.year, ref.month, _month_days(ref.year, ref.month)))
         if key == "last30":
@@ -130,9 +131,9 @@ class StatisticsPage(QWidget):
             f"{start} ~ {end}　总支出 {format_money(total)}"
         )
 
-        # 饼图
+        # 饼图(先用 deleteLater 回收旧视图,避免 setParent(None) 残留)
         if self.pie_view is not None:
-            self.pie_view.setParent(None)
+            self.pie_view.deleteLater()
             self.pie_view = None
         self.pie_table.setRowCount(len(stats))
         colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -176,7 +177,7 @@ class StatisticsPage(QWidget):
 
         # 每日趋势
         if self.trend_view is not None:
-            self.trend_view.setParent(None)
+            self.trend_view.deleteLater()
             self.trend_view = None
         trend = statistics_service.daily_trend(start, end)
         if HAS_CHARTS and any(d.amount > 0 for d in trend):

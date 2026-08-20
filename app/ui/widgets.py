@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QSizePolicy,
+    QFrame, QGraphicsDropShadowEffect, QLabel,
     QVBoxLayout, QWidget,
 )
 
@@ -71,5 +71,8 @@ class StatCard(QWidget):
 
     def set_value_object(self, obj: str):
         self.value_label.setObjectName(obj)
-        self.value_label.style().unpolish(self.value_label)
-        self.value_label.style().polish(self.value_label)
+        # 切换 objectName 后需通知样式系统重新应用,否则 QSS 不生效
+        style = self.value_label.style()
+        if style is not None:
+            style.polish(self.value_label)
+        self.value_label.update()
