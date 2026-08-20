@@ -1,0 +1,12 @@
+[project]
+name = "college-finance-assistant"
+version = "0.1.0"
+description = "大学生个人财务管理助手 - 本地优先的桌面端个人财务助手"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.6",
+]
+
+[tool.uv]
+package = false
