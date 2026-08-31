@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Optional
 
 from app.database.database import get_connection
@@ -77,7 +78,8 @@ class CycleSummary:
     days_total: int
     days_elapsed: int
     days_remaining: int
-    daily_suggestion: float  # 剩余预算 ÷ 剩余天数
+    daily_suggestion: float  # 智能建议:融合持平线与近期节奏,不超持平线
+    recent_daily: float      # 近 7 日日均支出(用于判断消费节奏)
     alert_level: str         # none / warning / danger / over
     used_ratio: float        # spent / budget
 
@@ -101,12 +103,13 @@ def get_cycle_summary(ref=None) -> CycleSummary:
     remaining = round2(budget - spent)
     balance_total = finance_service.get_total_balance()
 
-    if remaining_days > 0 and remaining > 0:
-        suggestion = round2(remaining / remaining_days)
-    elif remaining_days > 0 and remaining <= 0:
-        suggestion = 0.0            # 已超支,建议停止消费
-    else:
-        suggestion = round2(remaining) if remaining > 0 else 0.0  # 周期最后一天
+    # 近 7 日(含今天,不早于周期起点)日均支出,用于判断消费节奏
+    recent_start = max(start, ref - timedelta(days=6))
+    recent_days = max(1, (ref - recent_start).days + 1)
+    recent_spent = finance_service.sum_by_type(recent_start, ref, "expense")
+    recent_daily = round2(recent_spent / recent_days) if recent_spent > 0 else 0.0
+
+    suggestion = smart_daily_suggestion(remaining, remaining_days, recent_daily)
 
     used_ratio = round2(spent / budget) if budget > 0 else 0.0
     alert = alert_level(spent, budget)
@@ -116,8 +119,28 @@ def get_cycle_summary(ref=None) -> CycleSummary:
         balance_total=balance_total, start_date=start.isoformat(),
         end_date=end.isoformat(), days_total=total, days_elapsed=elapsed,
         days_remaining=remaining_days, daily_suggestion=suggestion,
-        alert_level=alert, used_ratio=used_ratio,
+        recent_daily=recent_daily, alert_level=alert, used_ratio=used_ratio,
     )
+
+
+def smart_daily_suggestion(remaining: float, days_remaining: int,
+                           recent_daily: float) -> float:
+    """根据剩余预算、剩余天数、近期日均动态计算今日建议消费。
+
+    持平线 flat = 剩余预算 ÷ 剩余天数(到月底不超支的日均上限)。
+    - 已超支或周期已结束:0
+    - 无近期消费数据:flat(用持平线)
+    - 否则:融合持平线(0.5)与近期日均(0.5),但永不超过持平线
+      (近期偏快会被持平线截断 → flat;近期偏慢则略低于持平线,贴合实际节奏)
+    设计上保证不会鼓励超支。
+    """
+    if remaining <= 0 or days_remaining <= 0:
+        return 0.0
+    flat = round2(remaining / days_remaining)
+    if recent_daily <= 0:
+        return flat
+    blend = round2(0.5 * flat + 0.5 * recent_daily)
+    return round2(min(blend, flat))
 
 
 def alert_level(spent: float, budget: float) -> str:

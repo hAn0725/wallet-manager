@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services import budget_service
+from app.utils import design_tokens as dtk
 from app.utils.helpers import format_money
 from app.ui.widgets import _apply_shadow
 
@@ -21,8 +22,8 @@ class BudgetPage(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(16)
+        root.setContentsMargins(*dtk.PAGE_MARGINS)
+        root.setSpacing(dtk.PAGE_SPACING)
 
         title = QLabel("预算管理")
         title.setObjectName("PageTitle")

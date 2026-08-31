@@ -14,8 +14,6 @@ from app.database import database as dbmod  # noqa: E402
 dbmod.DB_DIR = _TMP
 dbmod.DB_PATH = os.path.join(_TMP, "finance.db")
 
-from PySide6.QtCore import QSize  # noqa: E402
-from PySide6.QtGui import QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.database.database import init_db  # noqa: E402
@@ -71,9 +69,10 @@ def main():
     app.processEvents()
     names = ["dashboard", "transactions", "statistics",
              "budget", "savings", "settings"]
-    for i, name in enumerate(names):
-        win.pages.setCurrentIndex(i)
-        w = win.pages.widget(i)
+    for name in names:
+        # 页面是惰性创建的，必须通过导航创建对应页；直接按索引切换会反复截图首页。
+        win.go_to(name)
+        w = win.pages.currentWidget()
         if hasattr(w, "refresh"):
             w.refresh()
         app.processEvents()

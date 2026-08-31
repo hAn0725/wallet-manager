@@ -1,74 +1,68 @@
 # 大学生个人财务管理助手
 
-本地优先的 Windows 桌面端大学生个人财务管理软件。
+一个本地优先的 Windows 桌面记账应用。它不只帮助记录「钱花到哪里」，还通过预算、预测和消费提醒，帮助判断「接下来应该怎么花」。
 
-核心理念:不仅记录钱花到哪里,更重要的是帮助用户判断接下来应该怎么花。
+> 数据默认存放在本机 `~/.college_finance/finance.db`，无需注册、无需联网，也不会上传个人财务数据。
+
+## 功能
+
+- 快速记账：收入/支出、分类、日期、备注，以及账单筛选、编辑和删除。
+- 智能输入：例如输入 `昨天午饭 18`，即可自动识别金额、日期与分类；低置信度结果会交由用户确认。
+- 预算管理：支持自然月或自定义周期，展示预算进度、每日建议和超支提醒。
+- 财务洞察：分类占比、每日趋势、月度对比、月末预测、消费异常提醒和月度报告。
+- 储蓄目标：记录目标金额、存入/取出进度，首页可查看完成情况。
+- 固定收支：为生活费、话费、订阅等设置每月到账日，在首页提醒后一键记入；可启用、停用、编辑或删除。
+- 数据安全：JSON 全量导入导出、CSV 账单导出、SQLite 备份恢复，以及自动备份与损坏数据库恢复。
 
 ## 技术栈
 
-- Python 3.12
-- PySide6 (Qt for Python)
-- SQLite (本地数据库)
+- Python 3.10+
+- PySide6
+- SQLite（WAL 模式，本地存储）
+- pytest
 
 ## 运行
 
+推荐使用 [uv](https://docs.astral.sh/uv/)：
+
 ```bash
-uv run python app/main.py
+uv sync --extra dev
+uv run python -m app.main
 ```
 
-## 测试
+Windows 用户也可以双击 [`启动.bat`](启动.bat)。它会优先使用项目中的 `.venv`，没有虚拟环境时再尝试 `uv`。
+
+## 测试与质量检查
 
 ```bash
-# 服务层单元测试(37 项)
-uv run python -m pytest app/tests/test_services.py -v
+# 完整测试套件
+uv run python -m pytest -q
 
-# UI 烟雾测试(无头模式)
+# 无界面环境下的 UI 冒烟测试
 uv run python -m app.tests.test_ui_smoke
+
+# 性能基准
+uv run python -m app.tests.perf_test
+
+# 生成页面截图进行视觉验收
+uv run python -m app.tests.screenshot
 ```
+
+当前测试覆盖服务层、数据迁移、自然语言解析、固定收支、异常提醒和关键 UI 流程。
 
 ## 项目结构
 
-```
+```text
 app/
-├── main.py                 # 程序入口
-├── ui/
-│   ├── main_window.py       # 主窗口 + 侧边栏导航
-│   ├── dashboard.py         # 首页 Dashboard
-│   ├── transaction_page.py  # 快速记账 + 账单列表(含删除)
-│   ├── statistics_page.py   # 消费统计(饼图/柱状图/月度对比)
-│   ├── budget_page.py       # 预算管理
-│   ├── savings_page.py      # 储蓄目标
-│   ├── settings_page.py     # 设置 / 分类管理 / 数据导入导出
-│   └── widgets.py           # 可复用 UI 组件
-├── database/
-│   ├── database.py          # 连接 + 初始化 + 迁移
-│   └── models.py            # 表结构定义
-├── services/
-│   ├── finance_service.py   # 记账 / 账单 / 余额
-│   ├── budget_service.py    # 预算 / 剩余 / 建议 / 提醒
-│   ├── statistics_service.py# 分类统计 / 每日趋势 / 月度对比
-│   ├── prediction_service.py# 月底消费预测(可替换算法)
-│   ├── savings_service.py   # 储蓄目标
-│   ├── category_service.py  # 分类管理
-│   └── settings_service.py  # 导入导出 / 备份恢复
-└── utils/
-    └── helpers.py          # 格式化 / 日期 / 样式表
+├── database/     # SQLite 表结构、连接和恢复
+├── services/     # 账单、预算、统计、预测、备份等业务逻辑
+├── ui/           # PySide6 页面与可复用组件
+├── utils/        # 日期、金额、样式和日志工具
+└── tests/        # 单元、生命周期、冒烟和性能测试
 ```
 
-## 核心功能
+## 数据迁移建议
 
-- **首页 Dashboard**:本月剩余预算、进度条、今日建议消费、月底预测、累计余额、超支提醒、储蓄目标概览
-- **快速记账**:金额/分类/日期/备注 + 支出/收入切换,一键添加
-- **账单管理**:按类型/分类筛选、备注搜索、双击编辑、删除按钮
-- **预算管理**:月度预算、自然月/自定义周期、实时使用情况与提醒(80%/100%/超支)
-- **消费统计**:分类占比饼图、每日消费趋势柱状图、月度对比表
-- **月底预测**:融合周期日均(0.4)+ 近 7 日日均(0.6),预计总消费/余额/超支
-- **储蓄目标**:新增/编辑/删除、存入/取出、进度条
-- **数据管理**:JSON 全量导入导出(合并/替换)、CSV 账单导出、SQLite 备份恢复
-- **分类管理**:新增/编辑/删除分类,删除时账单保留但变未分类
-
-## 开发阶段
-
-- 第一阶段:项目结构 + 数据库 + 核心 UI + 数据逻辑 ✅
-- 第二阶段:MVP(Dashboard + 记账 + 账单 + 预算 + 基础统计) ✅
-- 第三阶段:月底预测 + 储蓄目标 + 月度对比 + 数据导入导出 + 备份 ✅
+- 日常迁移：在「设置 → 数据导入导出」中导出 JSON；JSON 包含账单、分类、预算、储蓄目标、固定收支和应用设置。
+- 完整灾备：使用 SQLite 备份。恢复前建议先额外备份当前数据库。
+- 导入前请先备份；「替换」模式会清空当前数据后再导入。

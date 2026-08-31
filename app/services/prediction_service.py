@@ -21,7 +21,7 @@ from app.utils.helpers import cycle_days, get_cycle_range, round2, today
 class PredictionResult:
     spent: float                 # 周期内已支出
     predicted_total: float       # 预计月底总消费
-    predicted_balance: float     # 预计月底余额(预算 - 预计总消费)
+    predicted_balance: float    # 预计月底余额(预算 - 预计总消费)
     overspend: float             # 预计超支金额(>=0)
     avg_daily: float             # 周期日均
     recent_daily: float          # 近 7 日日均
@@ -33,6 +33,47 @@ class PredictionResult:
     @property
     def will_overspend(self) -> bool:
         return self.overspend > 0
+
+
+def _recent_stats(start, ref):
+    """近 7 日(含今天,不早于周期起点)的总支出与天数,供融合计算。"""
+    recent_start = max(start, ref - timedelta(days=6))
+    trend = statistics_service.daily_trend(recent_start, ref)
+    recent_total = round2(sum(d.amount for d in trend))
+    return recent_total, (len(trend) or 1)
+
+
+def _compute_prediction(spent, days_elapsed, days_remaining, budget,
+                        recent_total, recent_days, method) -> PredictionResult:
+    """共享核心:由已花、已过/剩余天数、预算、近期总额算出预测结果。
+
+    抽出此函数以消除 predict / predict_with_budget 的重复逻辑。
+    """
+    avg_daily = round2(spent / days_elapsed) if days_elapsed > 0 else 0.0
+    # 近期日均:有数据用数据,无数据退化为周期日均
+    if recent_total > 0:
+        recent_daily = round2(recent_total / (recent_days or 1))
+    else:
+        recent_daily = avg_daily
+
+    # 数据稀疏时退化为日均
+    if recent_total == 0 and spent == 0:
+        blended = 0.0
+    elif recent_total == 0:
+        blended = avg_daily
+    else:
+        blended = round2(0.4 * avg_daily + 0.6 * recent_daily)
+
+    predicted_total = round2(spent + blended * days_remaining)
+    predicted_balance = round2(budget - predicted_total)
+    overspend = round2(max(0.0, predicted_total - budget)) if budget > 0 else 0.0
+
+    return PredictionResult(
+        spent=spent, predicted_total=predicted_total,
+        predicted_balance=predicted_balance, overspend=overspend,
+        avg_daily=avg_daily, recent_daily=recent_daily, blended_daily=blended,
+        days_elapsed=days_elapsed, days_remaining=days_remaining, method=method,
+    )
 
 
 class Predictor:
@@ -47,40 +88,13 @@ class Predictor:
         period_type = cfg.period_type if cfg else "natural_month"
         start_day = cfg.start_day if cfg else 1
 
-        start, end = get_cycle_range(period_type, start_day, ref)
+        start, _end = get_cycle_range(period_type, start_day, ref)
         # 复用 CycleSummary,避免重复查询预算/支出/天数
         summary = budget_service.get_cycle_summary(ref)
-        spent = summary.spent
-        days_elapsed = summary.days_elapsed
-        days_remaining = summary.days_remaining
-
-        avg_daily = round2(spent / days_elapsed) if days_elapsed > 0 else 0.0
-
-        # 近 7 日支出(含今天往前的 7 天,不超出周期起点)
-        recent_start = max(start, ref - timedelta(days=6))
-        trend = statistics_service.daily_trend(recent_start, ref)
-        recent_total = round2(sum(d.amount for d in trend))
-        recent_days = len(trend) or 1
-        recent_daily = round2(recent_total / recent_days) if recent_total > 0 else avg_daily
-
-        # 数据稀疏时退化为日均
-        if recent_total == 0 and spent == 0:
-            blended = 0.0
-        elif recent_total == 0:
-            blended = avg_daily
-        else:
-            blended = round2(0.4 * avg_daily + 0.6 * recent_daily)
-
-        predicted_total = round2(spent + blended * days_remaining)
-        predicted_balance = round2(budget - predicted_total)
-        overspend = round2(max(0.0, predicted_total - budget)) if budget > 0 else 0.0
-
-        return PredictionResult(
-            spent=spent, predicted_total=predicted_total,
-            predicted_balance=predicted_balance, overspend=overspend,
-            avg_daily=avg_daily, recent_daily=recent_daily, blended_daily=blended,
-            days_elapsed=days_elapsed, days_remaining=days_remaining,
-            method=self.name,
+        recent_total, recent_days = _recent_stats(start, ref)
+        return _compute_prediction(
+            summary.spent, summary.days_elapsed, summary.days_remaining,
+            budget, recent_total, recent_days, self.name,
         )
 
     def predict_with_budget(self, budget: float, period_type: str, start_day: int,
@@ -88,33 +102,12 @@ class Predictor:
         """直接给定预算参数做预测,跳过读库(便于批量/离线场景)。"""
         ref = ref or today()
         start, end = get_cycle_range(period_type, start_day, ref)
-        total, elapsed, remaining_days = cycle_days(period_type, start_day, ref)
-
+        _total, elapsed, remaining_days = cycle_days(period_type, start_day, ref)
         spent = finance_service.get_cycle_spent(start, end)
-        avg_daily = round2(spent / elapsed) if elapsed > 0 else 0.0
-
-        recent_start = max(start, ref - timedelta(days=6))
-        trend = statistics_service.daily_trend(recent_start, ref)
-        recent_total = round2(sum(d.amount for d in trend))
-        recent_daily = round2(recent_total / len(trend)) if recent_total > 0 else avg_daily
-
-        if recent_total == 0 and spent == 0:
-            blended = 0.0
-        elif recent_total == 0:
-            blended = avg_daily
-        else:
-            blended = round2(0.4 * avg_daily + 0.6 * recent_daily)
-
-        predicted_total = round2(spent + blended * remaining_days)
-        predicted_balance = round2(budget - predicted_total)
-        overspend = round2(max(0.0, predicted_total - budget)) if budget > 0 else 0.0
-
-        return PredictionResult(
-            spent=spent, predicted_total=predicted_total,
-            predicted_balance=predicted_balance, overspend=overspend,
-            avg_daily=avg_daily, recent_daily=recent_daily, blended_daily=blended,
-            days_elapsed=elapsed, days_remaining=remaining_days,
-            method=self.name,
+        recent_total, recent_days = _recent_stats(start, ref)
+        return _compute_prediction(
+            spent, elapsed, remaining_days,
+            budget, recent_total, recent_days, self.name,
         )
 
 

@@ -36,3 +36,6 @@ desktop.ini
 
 # 日志
 *.log
+
+# 本地视觉验收产物
+shots/

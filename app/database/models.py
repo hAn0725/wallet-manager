@@ -53,6 +53,22 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS recurring (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    amount       REAL    NOT NULL,
+    type         TEXT    NOT NULL CHECK(type IN ('income','expense')),
+    category_id  INTEGER,
+    day_of_month INTEGER NOT NULL CHECK(day_of_month BETWEEN 1 AND 28),
+    note         TEXT    NOT NULL DEFAULT '',
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    last_applied TEXT,                            -- 上次生成账单的月份 YYYY-MM
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_enabled ON recurring(enabled);
 """
 
 

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from app.services import savings_service
 from app.services.savings_service import SavingsGoal
+from app.utils import design_tokens as dtk
 from app.utils.helpers import format_money
 from app.ui.widgets import _apply_shadow
 
@@ -18,7 +19,7 @@ class GoalDialog(QDialog):
     def __init__(self, goal: SavingsGoal = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("编辑目标" if goal else "新增储蓄目标")
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(dtk.DIALOG_MIN_W)
         self._goal = goal
         self._build()
 
@@ -72,8 +73,8 @@ class SavingsPage(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(*dtk.PAGE_MARGINS)
+        root.setSpacing(dtk.PAGE_SPACING)
 
         title = QLabel("储蓄目标")
         title.setObjectName("PageTitle")
@@ -189,6 +190,7 @@ class SavingsPage(QWidget):
                 self.refresh()
                 if self.parent_window:
                     self.parent_window.refresh_all()
+                    self.parent_window.feedback(f"已创建目标「{d['name']}」")
             except ValueError as e:
                 QMessageBox.warning(self, "输入有误", str(e))
 
@@ -202,6 +204,7 @@ class SavingsPage(QWidget):
                 self.refresh()
                 if self.parent_window:
                     self.parent_window.refresh_all()
+                    self.parent_window.feedback("已更新目标")
             except ValueError as e:
                 QMessageBox.warning(self, "输入有误", str(e))
 
@@ -216,6 +219,7 @@ class SavingsPage(QWidget):
         self.refresh()
         if self.parent_window:
             self.parent_window.refresh_all()
+            self.parent_window.feedback(f"已删除目标「{g.name}」")
 
     def _adjust(self, gid: int, delta: float):
         if abs(delta) < 0.01:
@@ -225,5 +229,9 @@ class SavingsPage(QWidget):
             self.refresh()
             if self.parent_window:
                 self.parent_window.refresh_all()
+                if delta > 0:
+                    self.parent_window.feedback(f"已存入 {format_money(delta)}")
+                else:
+                    self.parent_window.feedback(f"已取出 {format_money(-delta)}")
         except ValueError as e:
             QMessageBox.warning(self, "操作失败", str(e))

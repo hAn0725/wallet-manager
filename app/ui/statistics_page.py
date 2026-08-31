@@ -8,11 +8,13 @@ from datetime import timedelta
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from app.services import budget_service, statistics_service
+from app.utils import design_tokens as dtk
 from app.utils.helpers import (
     _month_days, format_money, get_cycle_range, safe_date, today,
 )
@@ -35,8 +37,8 @@ class StatisticsPage(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(*dtk.PAGE_MARGINS)
+        root.setSpacing(dtk.PAGE_SPACING)
 
         title = QLabel("消费统计")
         title.setObjectName("PageTitle")
@@ -52,6 +54,11 @@ class StatisticsPage(QWidget):
         self.cycle_combo.currentIndexChanged.connect(self.refresh)
         head.addWidget(self.cycle_combo)
         head.addStretch()
+        self.btn_report = QPushButton("📄 本月财务报告")
+        self.btn_report.setObjectName("Primary")
+        self.btn_report.setCursor(Qt.PointingHandCursor)
+        self.btn_report.clicked.connect(self._show_report)
+        head.addWidget(self.btn_report)
         self.btn_refresh = QPushButton("刷新")
         self.btn_refresh.clicked.connect(self.refresh)
         head.addWidget(self.btn_refresh)
@@ -239,3 +246,117 @@ class StatisticsPage(QWidget):
             chg.setTextAlignment(Qt.AlignCenter)
             chg.setData(Qt.UserRole, color)
             self.cmp_table.setItem(i, 3, chg)
+
+    def _show_report(self):
+        rep = statistics_service.monthly_report()
+        dlg = MonthlyReportDialog(rep, self)
+        dlg.exec()
+
+
+class MonthlyReportDialog(QDialog):
+    """「我的本月财务报告」对话框 —— 简洁易读的月度总结。"""
+
+    def __init__(self, rep, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("本月财务报告")
+        self.setMinimumWidth(dtk.DIALOG_REPORT_W)
+        self._build(rep)
+
+    def _build(self, rep):
+        from app.ui.widgets import _apply_shadow
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 26, 28, 26)
+        root.setSpacing(14)
+
+        title = QLabel("我的本月财务报告")
+        title.setStyleSheet("font-size:22px;font-weight:800;color:#1d1d1f;")
+        root.addWidget(title)
+        sub = QLabel(f"{rep.year} 年 {rep.month} 月")
+        sub.setObjectName("SubMuted")
+        root.addWidget(sub)
+
+        if not rep.has_data:
+            empty = QLabel("本月还没有任何收支记录。\n记几笔账后,这里会生成你的月度总结。")
+            empty.setObjectName("SubMuted")
+            empty.setWordWrap(True)
+            root.addWidget(empty)
+            root.addStretch()
+            return
+
+        # 结余卡
+        net_card = QFrame()
+        net_card.setObjectName("Card")
+        nc = QVBoxLayout(net_card)
+        nc.setContentsMargins(20, 16, 20, 18)
+        nc.setSpacing(4)
+        nlbl = QLabel("本月结余(收入 − 支出)")
+        nlbl.setObjectName("CardTitle")
+        nc.addWidget(nlbl)
+        net_color = "#34c759" if rep.net >= 0 else "#ff3b30"
+        nval = QLabel(format_money(rep.net))
+        nval.setStyleSheet(f"font-size:32px;font-weight:800;color:{net_color};")
+        nc.addWidget(nval)
+        _apply_shadow(net_card)
+        root.addWidget(net_card)
+
+        # 收支明细网格
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(8)
+        rows = [
+            ("本月收入", format_money(rep.income), "#1d1d1f"),
+            ("本月支出", format_money(rep.expense), "#ff3b30" if rep.expense else "#1d1d1f"),
+            ("最大消费", f"{rep.top_category}　{format_money(rep.top_category_amount, False)}", "#1d1d1f"),
+        ]
+        if rep.budget > 0:
+            overspend_txt = (f"超支 {format_money(rep.overspend)}" if rep.overspend > 0
+                             else "未超支 ✓")
+            rows.append(("预算情况", f"预算 {format_money(rep.budget, False)}　{overspend_txt}",
+                         "#ff9500" if rep.overspend > 0 else "#34c759"))
+        if rep.last_expense > 0 or rep.expense > 0:
+            sign = "↑" if rep.expense_change_pct > 0 else ("↓" if rep.expense_change_pct < 0 else "—")
+            pct = int(round(abs(rep.expense_change_pct) * 100))
+            chg_color = "#ff3b30" if rep.expense_change_pct > 0 else "#34c759"
+            rows.append(("环比上月",
+                         f"{format_money(rep.last_expense, False)} → {format_money(rep.expense, False)}　{sign}{pct}%",
+                         chg_color))
+        if rep.savings_count > 0:
+            rows.append(("储蓄进度",
+                         f"{format_money(rep.savings_total, False)} / {format_money(rep.savings_target, False)}"
+                         f"　({rep.savings_count} 个目标)",
+                         "#0071e3"))
+        for i, (k, v, color) in enumerate(rows):
+            kl = QLabel(k)
+            kl.setObjectName("CardTitle")
+            vl = QLabel(v)
+            vl.setStyleSheet(f"font-size:14px;font-weight:600;color:{color};")
+            vl.setWordWrap(True)
+            grid.addWidget(kl, i, 0)
+            grid.addWidget(vl, i, 1)
+        root.addLayout(grid)
+
+        # 使用习惯
+        ins = statistics_service.usage_insights()
+        ins_title = QLabel("💡 本月使用习惯")
+        ins_title.setStyleSheet("font-size:13px;font-weight:700;color:#1d1d1f;"
+                                 "margin-top:6px;")
+        root.addWidget(ins_title)
+        ins_grid = QGridLayout()
+        ins_grid.setHorizontalSpacing(12)
+        ins_grid.setVerticalSpacing(4)
+        ins_rows = [
+            ("最易记账时间段", ins.peak_hour_range),
+            ("日均支出笔数", f"约 {ins.avg_daily_bills} 笔"),
+            ("最大单笔", f"{format_money(ins.max_amount)} · {ins.max_category}"),
+            ("消费集中度", f"{int(round(ins.top_category_ratio*100))}% 集中在最大分类"),
+        ]
+        for i, (k, v) in enumerate(ins_rows):
+            kl = QLabel(k)
+            kl.setObjectName("CardTitle")
+            vl = QLabel(v)
+            vl.setStyleSheet("font-size:13px;font-weight:600;")
+            ins_grid.addWidget(kl, i, 0)
+            ins_grid.addWidget(vl, i, 1)
+        root.addLayout(ins_grid)
+        root.addStretch()

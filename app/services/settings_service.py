@@ -2,12 +2,27 @@
 from __future__ import annotations
 
 import csv
+import glob
 import json
 import os
 import shutil
 from datetime import datetime
 
-from app.database.database import DB_PATH, get_connection
+from app.database.database import get_connection
+
+
+def _db_path() -> str:
+    """运行时读取数据库路径(避免 import 时快照,支持测试动态切换 DB 位置)。"""
+    from app.database.database import DB_PATH
+    return DB_PATH
+
+# 常用记账模板默认值:{icon, label, type, category, note}
+DEFAULT_TEMPLATES = [
+    {"icon": "🍜", "label": "午饭", "type": "expense", "category": "餐饮", "note": "午饭"},
+    {"icon": "🧋", "label": "奶茶", "type": "expense", "category": "餐饮", "note": "奶茶"},
+    {"icon": "🚇", "label": "地铁", "type": "expense", "category": "交通", "note": "地铁"},
+    {"icon": "🛒", "label": "购物", "type": "expense", "category": "购物", "note": "购物"},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +45,29 @@ def set_setting(key: str, value: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 常用记账模板(轻量:存 settings JSON,不建新表)
+# ---------------------------------------------------------------------------
+
+def get_templates() -> list[dict]:
+    """返回常用记账模板列表,首次使用默认模板。"""
+    raw = get_setting("quick_templates", None)
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                return data
+        except (ValueError, TypeError):
+            pass
+    # 首次使用:写入默认模板
+    save_templates(DEFAULT_TEMPLATES)
+    return list(DEFAULT_TEMPLATES)
+
+
+def save_templates(templates: list[dict]) -> None:
+    set_setting("quick_templates", json.dumps(templates, ensure_ascii=False))
+
+
+# ---------------------------------------------------------------------------
 # 导出
 # ---------------------------------------------------------------------------
 
@@ -37,12 +75,13 @@ def export_json(path: str) -> int:
     """导出全库为 JSON,返回记录数(账单条数)。"""
     conn = get_connection()
     data = {
-        "version": 1,
+        "version": 2,
         "exported_at": datetime.now().isoformat(timespec="seconds"),
         "categories": [dict(r) for r in conn.execute("SELECT * FROM categories ORDER BY id")],
         "transactions": [dict(r) for r in conn.execute("SELECT * FROM transactions ORDER BY id")],
         "budgets": [dict(r) for r in conn.execute("SELECT * FROM budgets ORDER BY id")],
         "savings_goals": [dict(r) for r in conn.execute("SELECT * FROM savings_goals ORDER BY id")],
+        "recurring": [dict(r) for r in conn.execute("SELECT * FROM recurring ORDER BY id")],
         "settings": [dict(r) for r in conn.execute("SELECT * FROM settings")],
     }
     with open(path, "w", encoding="utf-8") as f:
@@ -81,6 +120,8 @@ def import_json(path: str, mode: str = "merge") -> int:
     """从 JSON 导入。mode:
        'merge' —— 按 id 存在则更新,不存在则插入;
        'replace' —— 清空目标表后全量导入。
+
+    兼容 v1 导出文件；v2 起额外包含固定收支与应用设置。
     返回导入账单条数。
     """
     if mode not in ("merge", "replace"):
@@ -89,11 +130,15 @@ def import_json(path: str, mode: str = "merge") -> int:
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("JSON 格式不正确:根对象应为对象")
+    for key in ("categories", "transactions", "budgets", "savings_goals", "recurring", "settings"):
+        if key in data and not isinstance(data[key], list):
+            raise ValueError(f"JSON 格式不正确:{key} 应为数组")
 
     conn = get_connection()
     try:
         if mode == "replace":
-            for tbl in ("transactions", "categories", "budgets", "savings_goals"):
+            # 先删引用分类的表，再删分类，避免外键把中间状态变成未分类。
+            for tbl in ("transactions", "recurring", "categories", "budgets", "savings_goals", "settings"):
                 conn.execute(f"DELETE FROM {tbl}")
 
         def upsert(table, cols, row_dict, conflict_col="id"):
@@ -122,8 +167,19 @@ def import_json(path: str, mode: str = "merge") -> int:
             upsert("savings_goals",
                    ["id", "name", "target_amount", "current_amount", "note",
                     "created_at", "updated_at"], r)
+        for r in data.get("recurring", []):
+            upsert("recurring",
+                   ["id", "name", "amount", "type", "category_id", "day_of_month",
+                    "note", "enabled", "last_applied", "created_at", "updated_at"], r)
+        for r in data.get("settings", []):
+            upsert("settings", ["key", "value"], r, conflict_col="key")
+        # v1 文件没有 settings；补回应用运行所需的基础键。
+        conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('schema_version', '1')")
+        conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('first_run', '1')")
         conn.commit()
     except Exception:
+        import logging
+        logging.getLogger("data").exception("导入失败: %s", path)
         conn.rollback()
         raise
     return len(data.get("transactions", []))
@@ -132,16 +188,6 @@ def import_json(path: str, mode: str = "merge") -> int:
 # ---------------------------------------------------------------------------
 # 备份 / 恢复
 # ---------------------------------------------------------------------------
-
-def backup_database(dest_path: str) -> str:
-    """复制数据库文件到目标路径。返回实际路径。"""
-    if not os.path.exists(DB_PATH):
-        raise FileNotFoundError("数据库文件不存在")
-    os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
-    shutil.copy2(DB_PATH, dest_path)
-    # WAL/SHM 可能含未提交内容,使用在线备份更稳妥
-    return dest_path
-
 
 def backup_via_sqlite(dest_path: str) -> str:
     """用 SQLite 在线备份 API(确保 WAL 已落盘),更可靠。"""
@@ -154,6 +200,17 @@ def backup_via_sqlite(dest_path: str) -> str:
     finally:
         dst.close()
     return dest_path
+
+
+def _remove_sidecars(path: str) -> None:
+    """删除数据库的 WAL/SHM 侧文件(恢复/覆盖前必须清理,否则旧 WAL 会作用到新文件)。"""
+    for ext in ("-wal", "-shm"):
+        p = path + ext
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def restore_database(src_path: str) -> None:
@@ -171,14 +228,73 @@ def restore_database(src_path: str) -> None:
     finally:
         test.close()
 
-    # 关闭当前连接,再覆盖文件
+    # 关闭当前连接,清理侧文件,再覆盖文件
     from app.database.database import _local
     conn = getattr(_local, "conn", None)
     if conn is not None:
         conn.close()
         _local.conn = None
-    shutil.copy2(src_path, DB_PATH)
+    _remove_sidecars(_db_path())
+    shutil.copy2(src_path, _db_path())
 
 
 def get_db_path() -> str:
-    return DB_PATH
+    return _db_path()
+
+
+# ---------------------------------------------------------------------------
+# 自动备份(每 7 天一次,保留最近 5 个,不影响启动速度)
+# ---------------------------------------------------------------------------
+
+AUTO_BACKUP_KEEP = 5
+AUTO_BACKUP_INTERVAL_DAYS = 7
+
+
+def get_backup_dir() -> str:
+    d = os.path.join(os.path.dirname(_db_path()), "backups")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def list_backups() -> list[str]:
+    """按新到旧列出自动备份文件。"""
+    return sorted(glob.glob(os.path.join(get_backup_dir(), "autobackup_*.db")), reverse=True)
+
+
+def auto_backup(force: bool = False) -> str | None:
+    """每次启动时调用:距上次备份 >= 7 天才备份,保留最近 5 个。
+
+    空库不备份(避免刚初始化就白备份),但会记录时间避免反复尝试。
+    force=True 跳过节流(用于备份/恢复前后)。
+    返回备份路径;未执行返回 None。
+    """
+    last = get_setting("last_auto_backup")
+    now = datetime.now().date()
+    # 节流只在非强制时生效(否则连点「立即备份」会被 7 天限制挡住)
+    if not force and last:
+        try:
+            if (now - datetime.fromisoformat(last).date()).days < AUTO_BACKUP_INTERVAL_DAYS:
+                return None
+        except (ValueError, TypeError):
+            pass
+    # 空库不备份
+    conn = get_connection()
+    cnt = conn.execute("SELECT COUNT(*) AS c FROM transactions").fetchone()["c"]
+    if cnt == 0 and not force:
+        set_setting("last_auto_backup", now.isoformat())
+        return None
+    path = backup_via_sqlite(os.path.join(
+        get_backup_dir(),
+        f"autobackup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db",
+    ))
+    _prune_backups(AUTO_BACKUP_KEEP)
+    set_setting("last_auto_backup", now.isoformat())
+    return path
+
+
+def _prune_backups(keep: int) -> None:
+    for old in list_backups()[keep:]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass

@@ -41,17 +41,19 @@ def main():
         print(f"FAIL  构造 MainWindow: {e!r}")
         return 1
 
-    # 2. 切换到每个页面(触发各页 refresh)
-    for i in range(win.pages.count()):
+    # 2. 切换到每个页面(惰性加载:首次导航创建页面并 refresh)
+    NAV_KEYS = ["dashboard", "transactions", "statistics", "budget",
+                "savings", "settings"]
+    for i, key in enumerate(NAV_KEYS):
         try:
-            win.pages.setCurrentIndex(i)
-            w = win.pages.widget(i)
+            win.go_to(key)
+            w = win.pages.currentWidget()
             if hasattr(w, "refresh"):
                 w.refresh()
-            print(f"PASS  切换到页面 {i}: {w.__class__.__name__}")
+            print(f"PASS  切换页面 {i} ({key}): {w.__class__.__name__}")
         except Exception as e:  # noqa
-            print(f"FAIL  页面 {i}: {e!r}")
-            errors.append((i, repr(e)))
+            print(f"FAIL  页面 {i} ({key}): {e!r}")
+            errors.append((key, repr(e)))
 
     # 3. 写入一条支出 + 一条收入,验证刷新链路
     try:
@@ -93,11 +95,39 @@ def main():
         print(f"FAIL  预算/预测: {e!r}")
         errors.append(("budget", repr(e)))
 
+    # 5.5 自然语言记账:解析 → 确认对话框 → 写入
+    try:
+        import datetime as dt
+        from app.ui.smart_input import SmartInputDialog
+        # 支出案例
+        dlg = SmartInputDialog("午饭18", win, win.dashboard)
+        assert dlg.amount.value() == 18.0
+        assert dlg.type_combo.currentIndex() == 0          # 支出
+        assert dlg.category.currentText() == "餐饮"
+        d = dlg.date.date()
+        assert dt.date(d.year(), d.month(), d.day()) == dt.date.today()
+        # 收入案例
+        dlg2 = SmartInputDialog("生活费到账2500", win, win.dashboard)
+        assert dlg2.amount.value() == 2500.0
+        assert dlg2.type_combo.currentIndex() == 1         # 收入
+        assert "生活费" in dlg2.category.currentText()
+        # 直接触发确认写入(不弹窗),验证数据链路
+        n_before = len(finance_service.get_transactions())
+        dlg._confirm()
+        n_after = len(finance_service.get_transactions())
+        assert n_after == n_before + 1
+        assert dlg.result() == 1  # Accepted
+        win.refresh_all()
+        print("PASS  自然语言记账 解析+确认+写入+刷新全链路")
+    except Exception as e:  # noqa
+        print(f"FAIL  自然语言记账: {e!r}")
+        errors.append(("smart_input", repr(e)))
+
     # 6. 切回各页面再刷新一次(确认无残留状态错误)
     try:
-        for i in range(win.pages.count()):
-            win.pages.setCurrentIndex(i)
-            w = win.pages.widget(i)
+        for key in NAV_KEYS:
+            win.go_to(key)
+            w = win.pages.currentWidget()
             if hasattr(w, "refresh"):
                 w.refresh()
         print("PASS  二次切换刷新")

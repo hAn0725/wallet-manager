@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import datetime
+import os
+import sys
 from decimal import Decimal, ROUND_HALF_UP
 
 
@@ -294,9 +296,30 @@ QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color:
 """
 
 
-def style_card(widget):
-    widget.setObjectName("Card")
-    return widget
+_CJK_FONT_READY = False
+
+
+def install_cjk_font() -> None:
+    """为 Qt 注册一个可用的中文回退字体（若系统字体发现失败）。
+
+    部分精简版 Windows/CI 的 Qt 字体数据库不会自动枚举 CJK 字体，
+    即使字体文件实际存在，界面仍会显示方框。优先使用 Windows 自带字体；
+    找不到时静默跳过，让系统默认字体接管。
+    """
+    global _CJK_FONT_READY
+    if _CJK_FONT_READY or sys.platform != "win32":
+        return
+    try:
+        from PySide6.QtGui import QFontDatabase
+        font_dir = os.path.join(os.environ.get("WINDIR", r"C:\\Windows"), "Fonts")
+        for filename in ("NotoSansSC-VF.ttf", "msyh.ttc", "simhei.ttf", "simsun.ttc"):
+            path = os.path.join(font_dir, filename)
+            if os.path.isfile(path) and QFontDatabase.addApplicationFont(path) >= 0:
+                _CJK_FONT_READY = True
+                return
+    except Exception:
+        # 字体仅影响展示，绝不能阻断财务数据功能或应用启动。
+        return
 
 
 def today_display(ref=None) -> str:

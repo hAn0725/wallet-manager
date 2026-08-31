@@ -11,13 +11,14 @@ from PySide6.QtWidgets import (
 
 from app.services import category_service, finance_service
 from app.services.finance_service import Transaction
+from app.utils import design_tokens as dtk
 from app.utils.helpers import format_money, parse_money, today
 
 
 class QuickAddBar(QWidget):
     """快速记账条:金额 + 分类 + 日期 + 备注 + 类型,一键添加。"""
 
-    submitted = Signal()
+    submitted = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -100,11 +101,15 @@ class QuickAddBar(QWidget):
             d = self.date.date().toString("yyyy-MM-dd")
             note = self.note.text()
             finance_service.add_transaction(amt, cid, type_, d, note)
+            # 操作反馈:携带金额与备注
+            msg = f"已记账 {format_money(amt)}"
+            if note:
+                msg += f" · {note}"
             # 重置
             self.amount.clear()
             self.note.clear()
             self.amount.setFocus()
-            self.submitted.emit()
+            self.submitted.emit(msg)
         except ValueError as e:
             QMessageBox.warning(self, "输入有误", str(e))
         except Exception as e:  # noqa
@@ -114,11 +119,12 @@ class QuickAddBar(QWidget):
 class TransactionDialog(QDialog):
     """编辑账单对话框。"""
 
-    def __init__(self, txn: Transaction = None, parent=None):
+    def __init__(self, txn: Transaction = None, parent=None, parent_window=None):
         super().__init__(parent)
         self.setWindowTitle("编辑账单" if txn else "新增账单")
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(dtk.DIALOG_MIN_W)
         self._txn = txn
+        self._parent_window = parent_window
         self._build()
 
     def _build(self):
@@ -147,6 +153,11 @@ class TransactionDialog(QDialog):
         btns.button(QDialogButtonBox.Ok).setText("保存")
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
+        # 编辑已有账单时显示「删除」按钮(首页最近记录与账单页均可用)
+        if self._txn:
+            btn_del = btns.addButton("删除此账单", QDialogButtonBox.DestructiveRole)
+            btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.clicked.connect(self._request_delete)
         f.addRow(btns)
 
         # 预填
@@ -183,6 +194,22 @@ class TransactionDialog(QDialog):
             "note": self.note.toPlainText().strip(),
         }
 
+    def _request_delete(self):
+        if self._txn is None:
+            return
+        if QMessageBox.question(
+            self, "确认删除",
+            f"确定删除这条账单吗?\n  {self._txn.date}　"
+            f"{format_money(self._txn.amount)}　{self._txn.note}",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        ) != QMessageBox.Yes:
+            return
+        finance_service.delete_transaction(self._txn.id)
+        self.accept()
+        if self._parent_window:
+            self._parent_window.refresh_all()
+            self._parent_window.feedback("已删除账单")
+
 
 class TransactionPage(QWidget):
     """记账页 = 快速记账条 + 筛选 + 账单表格。"""
@@ -195,15 +222,15 @@ class TransactionPage(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(*dtk.PAGE_MARGINS)
+        root.setSpacing(dtk.PAGE_SPACING)
 
         title = QLabel("记账与账单")
         title.setObjectName("PageTitle")
         root.addWidget(title)
 
         self.quick = QuickAddBar()
-        self.quick.submitted.connect(self.refresh)
+        self.quick.submitted.connect(self._on_submitted)
         root.addWidget(self.quick)
 
         # 筛选行
@@ -244,6 +271,14 @@ class TransactionPage(QWidget):
         self.table.cellDoubleClicked.connect(self._on_double_click)
         root.addWidget(self.table)
 
+        # 空状态提示
+        self.empty_hint = QLabel("📝 还没有账单\n在上方填好金额,点「记一笔」开始记录吧")
+        self.empty_hint.setObjectName("SubMuted")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_hint.setStyleSheet("padding:32px; font-size:14px;")
+        self.empty_hint.setVisible(False)
+        root.addWidget(self.empty_hint)
+
     def _load_filter_categories(self):
         self.f_cat.clear()
         self.f_cat.addItem("全部分类", None)
@@ -255,6 +290,14 @@ class TransactionPage(QWidget):
         self.f_cat.setCurrentIndex(0)
         self.f_keyword.clear()
         self.refresh()
+
+    def _on_submitted(self, msg: str):
+        """快速记账成功后:刷新所有页面(Dashboard/预算/统计同步)+ 反馈。"""
+        if self.parent_window:
+            self.parent_window.refresh_all()
+            self.parent_window.feedback(msg)
+        else:
+            self.refresh()
 
     def refresh(self):
         # 筛选条件
@@ -302,6 +345,13 @@ class TransactionPage(QWidget):
             self.table.setCellWidget(i, 5, del_btn)
 
         self.table.setRowCount(len(txns))
+        # 空状态:无账单(或筛选无结果)时显示提示
+        self.empty_hint.setVisible(len(txns) == 0)
+        if len(txns) == 0:
+            if (type_ or cid or kw):
+                self.empty_hint.setText("🔎 没有符合条件的账单\n试试调整筛选条件")
+            else:
+                self.empty_hint.setText("📝 还没有账单\n在上方填好金额,点「记一笔」开始记录吧")
 
     def _delete(self, tid: int):
         txn = finance_service.get_transaction(tid)
@@ -319,6 +369,7 @@ class TransactionPage(QWidget):
             self.refresh()
             if self.parent_window:
                 self.parent_window.refresh_all()
+                self.parent_window.feedback("已删除账单")
         except Exception as e:  # noqa
             QMessageBox.critical(self, "删除失败", str(e))
 
@@ -328,7 +379,7 @@ class TransactionPage(QWidget):
         txn = finance_service.get_transaction(tid)
         if not txn:
             return
-        dlg = TransactionDialog(txn, self)
+        dlg = TransactionDialog(txn, self, parent_window=self.parent_window)
         if dlg.exec() == TransactionDialog.Accepted:
             d = dlg.get_data()
             try:
@@ -337,5 +388,6 @@ class TransactionPage(QWidget):
                 self.refresh()
                 if self.parent_window:
                     self.parent_window.refresh_all()
+                    self.parent_window.feedback("已更新账单")
             except ValueError as e:
                 QMessageBox.warning(self, "输入有误", str(e))

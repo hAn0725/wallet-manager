@@ -38,8 +38,7 @@ def add_transaction(amount, category_id, type_: str, date, note: str = "") -> in
         raise ValueError("金额必须大于 0")
     if type_ not in ("income", "expense"):
         raise ValueError("类型必须是 income 或 expense")
-    if category_id is not None and not _category_exists(category_id):
-        raise ValueError("分类不存在")
+    _validate_category_for_type(category_id, type_)
     d = iso(to_date(date))
     note = (note or "").strip()
     conn = get_connection()
@@ -57,8 +56,7 @@ def update_transaction(tid: int, amount, category_id, type_: str, date, note: st
         raise ValueError("金额必须大于 0")
     if type_ not in ("income", "expense"):
         raise ValueError("类型必须是 income 或 expense")
-    if category_id is not None and not _category_exists(category_id):
-        raise ValueError("分类不存在")
+    _validate_category_for_type(category_id, type_)
     if get_transaction(tid) is None:
         raise ValueError("账单不存在")
     d = iso(to_date(date))
@@ -78,6 +76,23 @@ def _category_exists(category_id: int) -> bool:
         "SELECT 1 FROM categories WHERE id=?", (category_id,)
     ).fetchone()
     return row is not None
+
+
+def _validate_category_for_type(category_id: Optional[int], type_: str) -> None:
+    """验证分类存在且与收支类型一致。
+
+    数据库外键只能保证分类存在，不能保证「收入账单不会使用支出分类」。
+    在服务层统一守住这条业务约束，避免统计与导入后的数据语义混乱。
+    """
+    if category_id is None:
+        return
+    row = get_connection().execute(
+        "SELECT type FROM categories WHERE id=?", (category_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("分类不存在")
+    if row["type"] != type_:
+        raise ValueError("分类类型与收支类型不匹配")
 
 
 def delete_transaction(tid: int) -> None:
