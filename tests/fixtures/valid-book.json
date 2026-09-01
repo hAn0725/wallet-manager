@@ -1,0 +1,31 @@
+{
+  "budget": 2500,
+  "accounts": [
+    {
+      "id": "qa-cash",
+      "name": "验证账户",
+      "type": "测试账户",
+      "opening": 1000
+    }
+  ],
+  "transactions": [
+    {
+      "id": "qa-expense",
+      "type": "expense",
+      "amount": 25.5,
+      "category": "餐饮",
+      "account": "验证账户",
+      "date": "2026-08-31",
+      "note": "导入验证支出"
+    },
+    {
+      "id": "qa-income",
+      "type": "income",
+      "amount": 300,
+      "category": "兼职",
+      "account": "验证账户",
+      "date": "2026-08-31",
+      "note": "导入验证收入"
+    }
+  ]
+}

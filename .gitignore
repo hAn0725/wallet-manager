@@ -1,41 +1,39 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.eggs/
-build/
-dist/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# 虚拟环境
-.venv/
-venv/
-env/
-.env
+# testing
+/coverage
 
-# 数据库文件（本地数据，不应上传）
-*.db
-*.sqlite
-*.sqlite3
+# next.js
+/.next/
+/.vinext/
+/out/
 
-# 备份文件
-*.bak
-*.backup
-
-# IDE / 编辑器
-.vscode/
-.idea/
-*.swp
-*.sublime-project
-*.sublime-workspace
-
-# 系统文件
+# misc
 .DS_Store
-Thumbs.db
-desktop.ini
+*.pem
 
-# 日志
-*.log
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
-# 本地视觉验收产物
-shots/
+# local environment
+.env*
+
+# deployment and generated files
+.vercel
+next-env.d.ts
+/dist/
+/desktop-dist/
+/.wrangler/
+/outputs/
+/work/

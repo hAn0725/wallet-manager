@@ -1,0 +1,22 @@
+{
+  "budget": 0,
+  "accounts": [
+    {
+      "id": "qa-cash",
+      "name": "验证账户",
+      "type": "测试账户",
+      "opening": 1000
+    }
+  ],
+  "transactions": [
+    {
+      "id": "qa-invalid-date",
+      "type": "expense",
+      "amount": 25.5,
+      "category": "餐饮",
+      "account": "验证账户",
+      "date": "2026-99-99",
+      "note": "无效日期"
+    }
+  ]
+}
