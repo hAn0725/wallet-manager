@@ -11,7 +11,9 @@
     "build:desktop": "vite build --config desktop.vite.config.ts",
     "start:desktop": "node scripts/desktop-server.mjs",
     "test:data": "node --experimental-strip-types tests/book-data.test.mjs",
+    "test:ai": "node --experimental-strip-types tests/ai-transaction.test.mjs",
     "test:server": "node tests/server-lifecycle.mjs",
+    "test": "npm run test:data && npm run test:ai && npm run test:server",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint app desktop scripts lib components/ui/button.tsx components/ui/input.tsx desktop.vite.config.ts vite.config.ts",
     "format": "oxfmt"
