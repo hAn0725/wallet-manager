@@ -109,12 +109,27 @@ function validDate(value) {
   );
 }
 
+function normalizeType(value) {
+  if (value === 'expense' || value === '支出') return 'expense';
+  if (value === 'income' || value === '收入') return 'income';
+  return null;
+}
+
+function normalizeAmount(value) {
+  if (typeof value === 'number') return value;
+  if (
+    typeof value === 'string' &&
+    /^\s*[¥￥]?\s*\d+(?:\.\d{1,2})?\s*(?:元)?\s*$/.test(value)
+  )
+    return Number(value.replace(/[¥￥元\s]/g, ''));
+  return Number.NaN;
+}
+
 function normalizeDraft(value, accounts) {
   if (!value || typeof value !== 'object')
     throw new Error('AI 没有识别出有效账目');
-  const type =
-    value.type === 'expense' || value.type === 'income' ? value.type : null;
-  const amount = Number(value.amount);
+  const type = normalizeType(value.type);
+  const amount = normalizeAmount(value.amount);
   const categories = type === 'income' ? incomeCategories : expenseCategories;
   if (!type || !Number.isFinite(amount) || amount <= 0 || amount > 100_000_000)
     throw new Error('AI 没有识别出有效金额或收支类型');
@@ -187,7 +202,7 @@ async function classifyWithAi(request, response) {
           messages: [
             {
               role: 'system',
-              content: `你是个人记账分类器。只返回 JSON 对象。type 只能是 expense 或 income；支出 category 只能是：${expenseCategories.join('、')}；收入 category 只能是：${incomeCategories.join('、')}。amount 是正数；account 从给定账户选择；date 为 YYYY-MM-DD；note 简短概括。未提账户用第一个，未提日期用今天。`,
+              content: `你是个人记账分类器。只返回一个 JSON 对象，不要解释、不要添加 Markdown。必须包含且只能包含 type、amount、category、account、date、note 六个字段，例如：{"type":"expense","amount":18.5,"category":"餐饮","account":"微信钱包","date":"2026-09-07","note":"学校食堂午饭"}。type 只能是英文 expense 或 income，amount 只能是数字；支出 category 只能是：${expenseCategories.join('、')}；收入 category 只能是：${incomeCategories.join('、')}。account 从给定账户选择；date 为 YYYY-MM-DD；note 简短概括。未提账户用第一个，未提日期用今天。`,
             },
             {
               role: 'user',

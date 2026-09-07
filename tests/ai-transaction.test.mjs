@@ -19,6 +19,13 @@ const expected = {
 };
 
 assert.deepEqual(normalizeAiTransaction(expected, accounts), expected);
+assert.deepEqual(
+  normalizeAiTransaction(
+    { ...expected, type: '支出', amount: '￥18.50元' },
+    accounts,
+  ),
+  expected,
+);
 assert.throws(
   () => normalizeAiTransaction({ ...expected, category: '随便' }, accounts),
   AiTransactionError,
