@@ -117,7 +117,9 @@ try {
     note: '学校食堂',
   });
   assert.equal(aiRequest.headers.authorization, 'Bearer test-key');
-  assert.equal(aiRequest.body.model, 'glm-4.7-flash');
+  assert.equal(aiRequest.body.model, 'glm-5.3-flash');
+  assert.equal(aiRequest.body.thinking.type, 'enabled');
+  assert.equal(aiRequest.body.reasoning_effort, 'high');
   assert.equal(aiRequest.body.messages[1].content.includes('opening'), false);
 
   const duplicate = startServer();

@@ -63,8 +63,9 @@ assert.deepEqual(draft, expected);
 assert.equal(outbound.url, 'https://example.test/chat/completions');
 assert.equal(outbound.init.headers.Authorization, 'Bearer test-key');
 const requestBody = JSON.parse(outbound.init.body);
-assert.equal(requestBody.model, 'glm-4.7-flash');
-assert.equal(requestBody.thinking.type, 'disabled');
+assert.equal(requestBody.model, 'glm-5.3-flash');
+assert.equal(requestBody.thinking.type, 'enabled');
+assert.equal(requestBody.reasoning_effort, 'high');
 assert.equal(requestBody.response_format.type, 'json_object');
 assert.doesNotMatch(requestBody.messages[1].content, /opening/);
 

@@ -198,7 +198,7 @@ async function classifyWithAi(request, response) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'glm-4.7-flash',
+          model: 'glm-5.3-flash',
           messages: [
             {
               role: 'system',
@@ -213,7 +213,8 @@ async function classifyWithAi(request, response) {
               }),
             },
           ],
-          thinking: { type: 'disabled' },
+          thinking: { type: 'enabled' },
+          reasoning_effort: 'high',
           temperature: 0.1,
           max_tokens: 300,
           response_format: { type: 'json_object' },
